@@ -26,14 +26,11 @@ function firstValue(value) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function getAudioMimeType(file) {
-  const mimeFromField = (file.mimetype || file.type || "").toString();
-  if (mimeFromField.startsWith("audio/")) {
-    return mimeFromField;
+  const declaredType = (file.mimetype || file.type || "").toString();
+
+  if (declaredType.startsWith("audio/")) {
+    return declaredType;
   }
 
   const ext = path.extname(file.originalFilename || file.newFilename || "").toLowerCase();
@@ -47,14 +44,17 @@ function getAudioMimeType(file) {
     case ".mp3":
       return "audio/mpeg";
     case ".m4a":
+    case ".mp4":
       return "audio/mp4";
     case ".aac":
       return "audio/aac";
-    case ".mp4":
-      return "audio/mp4";
     default:
-      return "audio/webm";
+      return "";
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export default async function handler(req, res) {
@@ -84,10 +84,15 @@ export default async function handler(req, res) {
     }
 
     const audioBuffer = await fs.readFile(audioFile.filepath);
-    const uploadMime = getAudioMimeType(audioFile);
 
-    console.log("[vc-transcript] audio upload metadata", {
-      filename: audioFile.originalFilename || audioFile.newFilename,
+    if (!audioBuffer || !audioBuffer.length) {
+      return res.status(400).json({ error: "Uploaded audio file is empty" });
+    }
+
+    const uploadMime = getAudioMimeType(audioFile) || "audio/webm";
+
+    console.log("[vc-transcript] incoming file", {
+      originalFilename: audioFile.originalFilename || audioFile.newFilename,
       mimetype: audioFile.mimetype || audioFile.type,
       guessedMime: uploadMime,
       size: audioBuffer.length,
