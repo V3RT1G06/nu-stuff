@@ -71,7 +71,7 @@ export default async function handler(req, res) {
     if (!uploadRes.ok || !uploadData?.upload_url) {
       return res.status(500).json({
         error: "AssemblyAI upload failed",
-        details: uploadData,
+        details: uploadData?.error || uploadData,
       });
     }
 
@@ -93,7 +93,7 @@ export default async function handler(req, res) {
     if (!transcriptRes.ok || !transcriptData?.id) {
       return res.status(500).json({
         error: "AssemblyAI transcript submit failed",
-        details: transcriptData,
+        details: transcriptData?.error || transcriptData,
       });
     }
 
@@ -115,7 +115,7 @@ export default async function handler(req, res) {
       if (finalData?.status === "error") {
         return res.status(500).json({
           error: "AssemblyAI transcription failed",
-          details: finalData,
+          details: finalData.error || finalData,
         });
       }
     }
