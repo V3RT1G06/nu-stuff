@@ -26,7 +26,7 @@ function firstValue(value) {
 }
 
 function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export default async function handler(req, res) {
@@ -83,7 +83,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         audio_url: uploadData.upload_url,
-        speech_model: "universal",
+        speech_models: ["universal"],
         language_code: "en_us",
       }),
     });
@@ -111,6 +111,7 @@ export default async function handler(req, res) {
       finalData = await pollRes.json().catch(() => null);
 
       if (finalData?.status === "completed") break;
+
       if (finalData?.status === "error") {
         return res.status(500).json({
           error: "AssemblyAI transcription failed",
