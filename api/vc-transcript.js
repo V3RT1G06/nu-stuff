@@ -1,15 +1,28 @@
+import formidable from "formidable";
+import fs from "node:fs/promises";
+
 export const config = {
   api: {
     bodyParser: false,
   },
 };
 
-async function readRawBody(req) {
-  const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
+function parseForm(req) {
+  const form = formidable({
+    multiples: false,
+    keepExtensions: true,
+  });
+
+  return new Promise((resolve, reject) => {
+    form.parse(req, (err, fields, files) => {
+      if (err) reject(err);
+      else resolve({ fields, files });
+    });
+  });
+}
+
+function firstValue(value) {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 export default async function handler(req, res) {
@@ -31,16 +44,29 @@ export default async function handler(req, res) {
   }
 
   try {
-    const contentType = req.headers["content-type"] || "";
-    const bodyBuffer = await readRawBody(req);
+    const { fields, files } = await parseForm(req);
+    const audioFile = firstValue(files.audio);
+
+    if (!audioFile) {
+      return res.status(400).json({ error: "Missing audio file" });
+    }
+
+    const audioBuffer = await fs.readFile(audioFile.filepath);
+    const fileBlob = new Blob([audioBuffer], {
+      type: audioFile.mimetype || "audio/webm",
+    });
+
+    const form = new FormData();
+    form.append("file", fileBlob, audioFile.originalFilename || "vc-audio.webm");
+    form.append("model", "gpt-4o-mini-transcribe");
+    form.append("response_format", "json");
 
     const openaiRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        "Content-Type": contentType,
       },
-      body: bodyBuffer,
+      body: form,
     });
 
     const data = await openaiRes.json().catch(() => null);
@@ -54,6 +80,11 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       text: typeof data?.text === "string" ? data.text.trim() : "",
+      roomId: firstValue(fields.roomId) || "",
+      roomName: firstValue(fields.roomName) || "",
+      user: firstValue(fields.user) || "",
+      startedAt: firstValue(fields.startedAt) || "",
+      endedAt: firstValue(fields.endedAt) || "",
     });
   } catch (error) {
     return res.status(500).json({
