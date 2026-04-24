@@ -25,6 +25,10 @@ function firstValue(value) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -38,9 +42,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.ASSEMBLYAI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
+    return res.status(500).json({ error: "Missing ASSEMBLYAI_API_KEY" });
   }
 
   try {
@@ -52,34 +56,71 @@ export default async function handler(req, res) {
     }
 
     const audioBuffer = await fs.readFile(audioFile.filepath);
-    const fileBlob = new Blob([audioBuffer], {
-      type: audioFile.mimetype || "audio/webm",
-    });
 
-    const form = new FormData();
-    form.append("file", fileBlob, audioFile.originalFilename || "vc-audio.webm");
-    form.append("model", "gpt-4o-mini-transcribe");
-    form.append("response_format", "json");
-
-    const openaiRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    const uploadRes = await fetch("https://api.assemblyai.com/v2/upload", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: apiKey,
+        "Content-Type": "application/octet-stream",
       },
-      body: form,
+      body: audioBuffer,
     });
 
-    const data = await openaiRes.json().catch(() => null);
+    const uploadData = await uploadRes.json().catch(() => null);
 
-    if (!openaiRes.ok) {
+    if (!uploadRes.ok || !uploadData?.upload_url) {
       return res.status(500).json({
-        error: "OpenAI transcription failed",
-        details: data,
+        error: "AssemblyAI upload failed",
+        details: uploadData,
       });
     }
 
+    const transcriptRes = await fetch("https://api.assemblyai.com/v2/transcript", {
+      method: "POST",
+      headers: {
+        Authorization: apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        audio_url: uploadData.upload_url,
+        speech_model: "universal",
+        language_code: "en_us",
+      }),
+    });
+
+    const transcriptData = await transcriptRes.json().catch(() => null);
+
+    if (!transcriptRes.ok || !transcriptData?.id) {
+      return res.status(500).json({
+        error: "AssemblyAI transcript submit failed",
+        details: transcriptData,
+      });
+    }
+
+    let finalData = transcriptData;
+
+    for (let i = 0; i < 30; i++) {
+      await sleep(1000);
+
+      const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptData.id}`, {
+        headers: {
+          Authorization: apiKey,
+        },
+      });
+
+      finalData = await pollRes.json().catch(() => null);
+
+      if (finalData?.status === "completed") break;
+      if (finalData?.status === "error") {
+        return res.status(500).json({
+          error: "AssemblyAI transcription failed",
+          details: finalData,
+        });
+      }
+    }
+
     return res.status(200).json({
-      text: typeof data?.text === "string" ? data.text.trim() : "",
+      text: typeof finalData?.text === "string" ? finalData.text.trim() : "",
       roomId: firstValue(fields.roomId) || "",
       roomName: firstValue(fields.roomName) || "",
       user: firstValue(fields.user) || "",
