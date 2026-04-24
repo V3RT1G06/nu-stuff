@@ -1,5 +1,6 @@
 import formidable from "formidable";
 import fs from "node:fs/promises";
+import path from "node:path";
 
 export const config = {
   api: {
@@ -29,6 +30,33 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function getAudioMimeType(file) {
+  const mimeFromField = (file.mimetype || file.type || "").toString();
+  if (mimeFromField.startsWith("audio/")) {
+    return mimeFromField;
+  }
+
+  const ext = path.extname(file.originalFilename || file.newFilename || "").toLowerCase();
+  switch (ext) {
+    case ".webm":
+      return "audio/webm";
+    case ".ogg":
+      return "audio/ogg";
+    case ".wav":
+      return "audio/wav";
+    case ".mp3":
+      return "audio/mpeg";
+    case ".m4a":
+      return "audio/mp4";
+    case ".aac":
+      return "audio/aac";
+    case ".mp4":
+      return "audio/mp4";
+    default:
+      return "audio/webm";
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -56,12 +84,20 @@ export default async function handler(req, res) {
     }
 
     const audioBuffer = await fs.readFile(audioFile.filepath);
+    const uploadMime = getAudioMimeType(audioFile);
+
+    console.log("[vc-transcript] audio upload metadata", {
+      filename: audioFile.originalFilename || audioFile.newFilename,
+      mimetype: audioFile.mimetype || audioFile.type,
+      guessedMime: uploadMime,
+      size: audioBuffer.length,
+    });
 
     const uploadRes = await fetch("https://api.assemblyai.com/v2/upload", {
       method: "POST",
       headers: {
         Authorization: apiKey,
-        "Content-Type": "application/octet-stream",
+        "Content-Type": uploadMime,
       },
       body: audioBuffer,
     });
@@ -71,7 +107,7 @@ export default async function handler(req, res) {
     if (!uploadRes.ok || !uploadData?.upload_url) {
       return res.status(500).json({
         error: "AssemblyAI upload failed",
-        details: uploadData?.error || uploadData,
+        details: uploadData?.error || uploadData || "Unknown upload error",
       });
     }
 
@@ -93,7 +129,7 @@ export default async function handler(req, res) {
     if (!transcriptRes.ok || !transcriptData?.id) {
       return res.status(500).json({
         error: "AssemblyAI transcript submit failed",
-        details: transcriptData?.error || transcriptData,
+        details: transcriptData?.error || transcriptData || "Unknown transcript submit error",
       });
     }
 
